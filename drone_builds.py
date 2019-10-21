@@ -80,6 +80,36 @@ def getBuilds(drone_server_url, header_str, repo_name):
         raise(droneError)
 
 
+def recurse(data):
+    for entry in data:
+        repo = data[entry]
+
+        if not('gitlab' in repo):
+            try:
+                if (isinstance(repo, dict)):
+                    iterator = iter(repo)
+                    recurse(repo)
+                else:
+                    continue
+            except TypeError:
+                continue
+        else:
+            if ("gitlab" in drone_server_url and repo['gitlab'] == True) or (not("gitlab" in drone_server_url) and repo['gitlab'] == False):
+                print('repo ' + repo['drone_repo'])
+                continue
+                build_list = getBuilds(drone_server_url, header_str, repo['drone_repo'])
+
+                try:
+                    for build in build_list:
+                        if (build['branch'] == 'master' and (build['event'] == 'push' or build['event'] == 'deployment')):
+                            repo['tag'] = build['commit'].encode('ascii', 'ignore')
+                            break
+                except Exception as buildError:
+                    print('No builds for ' + entry)
+            else:
+                print('Failed ' + repo['drone_repo'])
+
+
 def populate_local(yaml_file, drone_server_url, header_str):
     # Validate yaml file
     if not validateFile(yaml_file):
@@ -90,19 +120,8 @@ def populate_local(yaml_file, drone_server_url, header_str):
         var_data = yaml.safe_load(stream)
 
     repo_list = []
-    for entry in var_data:
-        repo = var_data[entry]
-        if 'gitlab' in repo:
-            if ("gitlab" in drone_server_url and repo['gitlab'] == 'true') or (not("gitlab" in drone_server_url) and not(repo['gitlab'] == 'false')):
-                build_list = getBuilds(drone_server_url, header_str, repo['drone_repo'])
-
-                for build in build_list:
-                    if (build['branch'] == 'master' and (build['event'] == 'push' or build['event'] == 'deployment')):
-                        var_data[entry]['tag'] = build['commit'].encode('ascii', 'ignore')
-                        break
-
-    print(yaml.dump(var_data))
-
+    recurse(var_data)
+    #print(yaml.dump(var_data))
 
 
 def buildReport(args, drone_server_url, drone_user_token, header_str):
@@ -139,16 +158,16 @@ def buildReport(args, drone_server_url, drone_user_token, header_str):
             if dev_builds:
                 repo_builds.append(dev_builds[0])
 
-        if secrets_builds:
-            repo_builds.append(secrets_builds[0])
+            if secrets_builds:
+                repo_builds.append(secrets_builds[0])
 
-        if staging_builds:
-            repo_builds.append(staging_builds[0])
+            if staging_builds:
+                repo_builds.append(staging_builds[0])
 
-        if prod_builds:
-            repo_builds.append(prod_builds[0])
+            if prod_builds:
+                repo_builds.append(prod_builds[0])
 
-        print_repos_build_info(repo['full_name'], repo_builds)
+            print_repos_build_info(repo['full_name'], repo_builds)
 
         print('\n')
         
@@ -167,5 +186,5 @@ if __name__ == "__main__":
     if args.action == 'report':
         buildReport(args, drone_server_url, drone_user_token, header_str)
     elif args.action == 'populate':
-        populate_local('blocal.yml', drone_server_url, header_str)
+        populate_local('local.yml', drone_server_url, header_str)
     

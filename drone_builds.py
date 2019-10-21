@@ -7,19 +7,19 @@ from common import *
 from prettytable import PrettyTable
 
 
-def getDroneServerUrl():
-    drone_server_url = os.environ.get('DRONE_SERVER')
+def getDroneServerUrl(env_var_name):
+    drone_server_url = os.environ.get(env_var_name)
     if drone_server_url is None:
-        print('Drone server environment variable not set')
+        print('Drone server environment variable ' + env_var_name + ' not set')
         exit(1)
 
     return drone_server_url
 
 
-def getDroneUserToken():
-    drone_user_token = os.environ.get('DRONE_TOKEN')
+def getDroneUserToken(env_var_name):
+    drone_user_token = os.environ.get(env_var_name)
     if drone_user_token is None:
-        print('Drone user token environment variable not set')
+        print('Drone user token environment variable ' + env_var_name + ' not set')
         exit(1)
 
     return drone_user_token
@@ -35,7 +35,8 @@ def print_repos_build_info(repo, build_list):
         for build in build_list:
             json_str = json.loads(build)
             deploy_env = 'DEV' if json_str['deploy_to'] == '' else json_str['deploy_to'].upper()
-            t.add_row([deploy_env, json_str['number'], datetime.datetime.fromtimestamp(json_str['started_at']), json_str['status'], json_str['link_url']])
+            commit_str = json_str['commit'] if json_str['link_url'] == '' else json_str['link_url']
+            t.add_row([deploy_env, json_str['number'], datetime.datetime.fromtimestamp(json_str['started_at']), json_str['status'], commit_str])
 
         print(t)
 
@@ -46,7 +47,8 @@ def print_repo_build_info(build_env, build_list):
         print('**' + build_env.upper() + '**')
         for build in build_list:
             json_str = json.loads(build)
-            t.add_row([json_str['number'], datetime.datetime.fromtimestamp(json_str['started_at']), json_str['status'], json_str['link_url'], json_str['author']])
+            commit_str = json_str['commit'] if json_str['link_url'] == '' else json_str['link_url']
+            t.add_row([json_str['number'], datetime.datetime.fromtimestamp(json_str['started_at']), json_str['status'], commit_str, json_str['author']])
 
         print(t)
 
@@ -80,7 +82,7 @@ def getBuilds(drone_server_url, header_str, repo_name):
         raise(droneError)
 
 
-def recurse(data):
+def recurse(data, drone_server_url, header_str):
     for entry in data:
         repo = data[entry]
 
@@ -88,15 +90,13 @@ def recurse(data):
             try:
                 if (isinstance(repo, dict)):
                     iterator = iter(repo)
-                    recurse(repo)
+                    recurse(repo, drone_server_url, header_str)
                 else:
                     continue
             except TypeError:
                 continue
         else:
             if ("gitlab" in drone_server_url and repo['gitlab'] == True) or (not("gitlab" in drone_server_url) and repo['gitlab'] == False):
-                print('repo ' + repo['drone_repo'])
-                continue
                 build_list = getBuilds(drone_server_url, header_str, repo['drone_repo'])
 
                 try:
@@ -106,22 +106,23 @@ def recurse(data):
                             break
                 except Exception as buildError:
                     print('No builds for ' + entry)
-            else:
-                print('Failed ' + repo['drone_repo'])
 
 
-def populate_local(yaml_file, drone_server_url, header_str):
-    # Validate yaml file
-    if not validateFile(yaml_file):
-        print('Yaml file is not valid')
-        exit(1)
-
-    with open(yaml_file, 'r') as stream:
-        var_data = yaml.safe_load(stream)
+def populate_local(data, yaml_file, drone_server_url, header_str):
+    if data is None:
+        # Validate yaml file
+        if not validateFile(yaml_file):
+            print('Yaml file is not valid')
+            exit(1)
+    
+        with open(yaml_file, 'r') as stream:
+            var_data = yaml.safe_load(stream)
+    else:
+        var_data = data
 
     repo_list = []
-    recurse(var_data)
-    #print(yaml.dump(var_data))
+    recurse(var_data, drone_server_url, header_str)
+    return var_data
 
 
 def buildReport(args, drone_server_url, drone_user_token, header_str):
@@ -134,6 +135,9 @@ def buildReport(args, drone_server_url, drone_user_token, header_str):
         prod_builds = []
                 
         build_list = getBuilds(drone_server_url, header_str, repo['full_name'])
+        if not build_list:
+            print('No builds found for ' + repo['full_name'])
+            continue
 
         print('**' + repo['full_name'].upper() + '**')
 
@@ -170,21 +174,42 @@ def buildReport(args, drone_server_url, drone_user_token, header_str):
             print_repos_build_info(repo['full_name'], repo_builds)
 
         print('\n')
-        
-    exit(0)
 
 
-if __name__ == "__main__":
-    parser = getDroneBuildsParser()
-    parser.add_argument('-a', '--action', dest='action', default='report', help='Options are report (builds per repo, summary or detailed), and populate (For releases to staging/production)')
-    args = parser.parse_args()
-
-    drone_server_url = getDroneServerUrl()
-    drone_user_token = getDroneUserToken()
+def runAction(args, data, env_server_name, env_token_name):
+    drone_server_url = getDroneServerUrl(env_server_name)
+    drone_user_token = getDroneUserToken(env_token_name)
     header_str = getDroneTokenString(drone_user_token)
 
     if args.action == 'report':
         buildReport(args, drone_server_url, drone_user_token, header_str)
     elif args.action == 'populate':
-        populate_local('local.yml', drone_server_url, header_str)
-    
+        return populate_local(data, 'local.yml', drone_server_url, header_str)
+
+
+if __name__ == "__main__":
+    parser = getDroneBuildsParser()
+    args = parser.parse_args()
+
+    data = None
+    process_gitlab = True
+    process_github = True
+
+    if args.repo is not None:
+        if args.repo_store is None:
+            print('If you specify a repo, please specify a store')
+            exit(1)
+        else:
+            if args.repo_store == 'gitlab':
+                process_github = False
+            else:
+                process_gitlab = False
+
+    if process_github:
+        data = runAction(args, data, 'GITHUB_DRONE_SERVER', 'GITHUB_DRONE_TOKEN')
+
+    if process_gitlab:
+        data = runAction(args, data, 'GITLAB_DRONE_SERVER', 'GITLAB_DRONE_TOKEN')
+
+    if (data is not None) and (args.action == 'populate'):
+        print(yaml.dump(data))

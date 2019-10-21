@@ -37,7 +37,9 @@ def getUserParser():
 def getDroneBuildsParser():
     parser = argparse.ArgumentParser(description='Drone builds')
 
+    parser.add_argument('-a', '--action', dest='action', default='report', help='Options are report (builds per repo, summary or detailed), and populate (For releases to staging/production)')
     parser.add_argument('-r', '--repo', dest='repo', help='Drone repository name')
+    parser.add_argument('-s', '--store', dest='repo_store', choices=['github', 'gitlab'], help='Github / Gitlab repository store')
     parser.add_argument('-t', '--report-type', dest='reporttype', default='summary', choices=['detailed', 'summary'], help='Type of report, defaults to summary')
 
     return parser

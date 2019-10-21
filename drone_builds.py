@@ -98,10 +98,11 @@ def populate_local(yaml_file, drone_server_url, header_str):
 
                 for build in build_list:
                     if (build['branch'] == 'master' and (build['event'] == 'push' or build['event'] == 'deployment')):
-                        print('before ' + var_data[entry]['tag'])
-                        var_data[entry]['tag'] = build['commit']
-                        print('after ' + var_data[entry]['tag'])
+                        var_data[entry]['tag'] = build['commit'].encode('ascii', 'ignore')
                         break
+
+    print(yaml.dump(var_data))
+
 
 
 def buildReport(args, drone_server_url, drone_user_token, header_str):

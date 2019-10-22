@@ -5,6 +5,7 @@ import json
 import requests
 from common import *
 from prettytable import PrettyTable
+from prettytable import PLAIN_COLUMNS
 
 
 def getDroneServerUrl(env_var_name):
@@ -29,9 +30,11 @@ def getDroneTokenString(drone_user_token):
     return {'Authorization': "Bearer " + drone_user_token}
 
 
-def print_repos_build_info(repo, build_list):
+def print_repos_build_info(repo, build_list, report_format):
     if build_list:
         t = PrettyTable(['Environment', 'Build', 'Date', 'Status', 'Commit'])
+        if report_format == 'list':
+            t.set_style (PLAIN_COLUMNS)
         for build in build_list:
             json_str = json.loads(build)
             deploy_env = 'DEV' if json_str['deploy_to'] == '' else json_str['deploy_to'].upper()
@@ -41,9 +44,11 @@ def print_repos_build_info(repo, build_list):
         print(t)
 
 
-def print_repo_build_info(build_env, build_list):
+def print_repo_build_info(build_env, build_list, report_format):
     if build_list:
         t = PrettyTable(['Build', 'Date', 'Status', 'Commit', 'Author'])
+        if report_format == 'list':
+            t.set_style (PLAIN_COLUMNS)
         print('**' + build_env.upper() + '**')
         for build in build_list:
             json_str = json.loads(build)
@@ -153,10 +158,10 @@ def buildReport(args, drone_server_url, drone_user_token, header_str):
                     dev_builds.append(json.dumps(build))
 
         if args.reporttype == 'detailed':
-            print_repo_build_info('dev', dev_builds)
-            print_repo_build_info('secrets', secrets_builds)
-            print_repo_build_info('staging', staging_builds)
-            print_repo_build_info('production', prod_builds)
+            print_repo_build_info('dev', dev_builds, args.reportformat)
+            print_repo_build_info('secrets', secrets_builds, args.reportformat)
+            print_repo_build_info('staging', staging_builds, args.reportformat)
+            print_repo_build_info('production', prod_builds, args.reportformat)
         elif args.reporttype == 'summary':
             repo_builds = []
             if dev_builds:
@@ -171,7 +176,7 @@ def buildReport(args, drone_server_url, drone_user_token, header_str):
             if prod_builds:
                 repo_builds.append(prod_builds[0])
 
-            print_repos_build_info(repo['full_name'], repo_builds)
+            print_repos_build_info(repo['full_name'], repo_builds, args.reportformat)
 
         print('\n')
 

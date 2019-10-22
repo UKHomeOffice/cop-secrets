@@ -87,7 +87,7 @@ def getBuilds(drone_server_url, header_str, repo_name):
         raise(droneError)
 
 
-def recurse(data, drone_server_url, header_str):
+def recurse(data, drone_server_url, header_str, action, deploy_to):
     for entry in data:
         repo = data[entry]
 
@@ -95,39 +95,27 @@ def recurse(data, drone_server_url, header_str):
             try:
                 if (isinstance(repo, dict)):
                     iterator = iter(repo)
-                    recurse(repo, drone_server_url, header_str)
+                    recurse(repo, drone_server_url, header_str, action, deploy_to)
                 else:
                     continue
             except TypeError:
                 continue
         else:
             if ("gitlab" in drone_server_url and repo['gitlab'] == True) or (not("gitlab" in drone_server_url) and repo['gitlab'] == False):
-                build_list = getBuilds(drone_server_url, header_str, repo['drone_repo'])
-
                 try:
-                    for build in build_list:
-                        if (build['branch'] == 'master' and (build['event'] == 'push' or build['event'] == 'deployment')):
-                            repo['tag'] = build['commit'].encode('ascii', 'ignore')
-                            break
-                except Exception as buildError:
-                    print('No builds for ' + entry)
-
-
-def populate_local(data, yaml_file, drone_server_url, header_str):
-    if data is None:
-        # Validate yaml file
-        if not validateFile(yaml_file):
-            print('Yaml file is not valid')
-            exit(1)
+                    build_list = getBuilds(drone_server_url, header_str, repo['drone_repo'])
     
-        with open(yaml_file, 'r') as stream:
-            var_data = yaml.safe_load(stream)
-    else:
-        var_data = data
-
-    repo_list = []
-    recurse(var_data, drone_server_url, header_str)
-    return var_data
+                    for build in build_list:
+                        if action == 'populate':
+                            if (build['branch'] == 'master' and (build['event'] == 'push' or build['event'] == 'deployment')):
+                                repo['tag'] = build['commit'].encode('ascii', 'ignore')
+                                break
+                        else:
+                            if repo['tag'] == build['commit'].encode('ascii', 'ignore'):
+                                print('drone deploy ' + repo['drone_repo'] + ' ' + str(build['number']) + ' ' + deploy_to)
+                                break
+                except Exception as buildError:
+                    print(str(buildError))
 
 
 def buildReport(args, drone_server_url, drone_user_token, header_str):
@@ -181,15 +169,33 @@ def buildReport(args, drone_server_url, drone_user_token, header_str):
         print('\n')
 
 
+def process_local(data, yaml_file, drone_server_url, header_str, action, deploy_to):
+    if data is None:
+        # Validate yaml file
+        if not validateFile(yaml_file):
+            print('Yaml file is not valid')
+            exit(1)
+    
+        with open(yaml_file, 'r') as stream:
+            var_data = yaml.safe_load(stream)
+    else:
+        var_data = data
+
+    repo_list = []
+    recurse(var_data, drone_server_url, header_str, action, deploy_to)
+    return var_data
+
+
 def runAction(args, data, env_server_name, env_token_name):
     drone_server_url = getDroneServerUrl(env_server_name)
     drone_user_token = getDroneUserToken(env_token_name)
     header_str = getDroneTokenString(drone_user_token)
+    local_filename = 'local.yml'
 
     if args.action == 'report':
         buildReport(args, drone_server_url, drone_user_token, header_str)
-    elif args.action == 'populate':
-        return populate_local(data, 'local.yml', drone_server_url, header_str)
+    elif args.action == 'populate' or args.action == 'deploy':
+        return process_local(data, local_filename, drone_server_url, header_str, args.action, args.deploy_to)
 
 
 if __name__ == "__main__":
@@ -200,7 +206,7 @@ if __name__ == "__main__":
     process_gitlab = True
     process_github = True
 
-    if args.repo is not None:
+    if args.repo is not None or args.repo_store is not None:
         if args.repo_store is None:
             print('If you specify a repo, please specify a store')
             exit(1)
@@ -209,6 +215,11 @@ if __name__ == "__main__":
                 process_github = False
             else:
                 process_gitlab = False
+
+    if args.action == 'deploy':
+        if args.deploy_to is None:
+            print('If you specify a deployment, please specify an environment to deploy to')
+            exit(1)
 
     if process_github:
         data = runAction(args, data, 'GITHUB_DRONE_SERVER', 'GITHUB_DRONE_TOKEN')
